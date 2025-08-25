@@ -1,57 +1,43 @@
 // Protocol handling for RemoteView client
 
+import { DataType, CompressionType } from '../types';
 import type { 
   TileHeader, 
   TileData, 
   ControlMessage, 
-  ControlResponse,
-  DataType,
-  CompressionType 
-} from '@/types';
+  ControlResponse
+} from '../types';
+
+import { TileFrameParser } from './parseTileFrame';
 
 export class TileDecoder {
-  // Decode binary tile message as per wire protocol spec
+  private static parser = new TileFrameParser();
+
+  // Decode binary tile message with comprehensive validation
   static decode(data: ArrayBuffer): TileData | null {
-    if (data.byteLength < 24) {
-      console.warn('Tile message too short for header');
+    const result = this.parser.parse(data);
+    
+    if (!result.success) {
+      console.warn(`[TileDecoder] Frame parse failed: ${result.error} - ${result.errorDetails}`);
       return null;
     }
+    
+    return result.data!;
+  }
 
-    const view = new DataView(data);
-    let offset = 0;
+  // Get parser statistics
+  static getParseStats() {
+    return this.parser.getStats();
+  }
 
-    // Parse 24-byte header
-    const header: TileHeader = {
-      msgType: view.getUint8(offset++),
-      plane: view.getUint8(offset++),
-      tileW: view.getUint16(offset, true), // little endian
-      tileH: view.getUint16(offset + 2, true),
-      tileX: view.getUint32(offset + 4, true),
-      tileY: view.getUint32(offset + 8, true),
-      sliceIndex: view.getUint32(offset + 12, true),
-      dtype: view.getUint8(offset + 16),
-      compression: view.getUint8(offset + 17),
-      uncompressedBytes: view.getUint32(offset + 18, true),
-      payloadBytes: view.getUint32(offset + 22, true)
-    };
+  // Reset parser statistics
+  static resetParseStats() {
+    this.parser.resetStats();
+  }
 
-    offset = 24;
-
-    // Validate header
-    if (header.msgType !== 0x01) {
-      console.warn('Invalid tile message type:', header.msgType);
-      return null;
-    }
-
-    if (data.byteLength < 24 + header.payloadBytes) {
-      console.warn('Tile payload incomplete');
-      return null;
-    }
-
-    // Extract payload
-    const payload = new Uint8Array(data, offset, header.payloadBytes);
-
-    return { header, payload };
+  // Check if buffer contains a valid tile frame
+  static isValidTileFrame(buffer: ArrayBuffer): boolean {
+    return TileFrameParser.isValidTileFrame(buffer);
   }
 
   // Get bytes per sample for data type
@@ -91,56 +77,35 @@ export class TileDecoder {
   }
 }
 
+import { getDecompressionPool } from '../workers/DecompressionPool';
+
 export class TileDecompressor {
-  private lz4Module: any = null;
-  private zstdModule: any = null;
+  private decompressionPool = getDecompressionPool();
 
   async initialize() {
-    // Initialize compression libraries
-    // Note: In a real implementation, you'd load LZ4 and Zstd WASM modules
-    console.log('Initializing tile decompressor...');
+    console.log('TileDecompressor using worker pool for decompression');
   }
 
   async decompress(data: Uint8Array, compression: CompressionType, uncompressedSize: number): Promise<Uint8Array> {
-    switch (compression) {
-      case CompressionType.None:
-        return data;
-
-      case CompressionType.LZ4:
-        return this.decompressLZ4(data, uncompressedSize);
-
-      case CompressionType.Zstd:
-        return this.decompressZstd(data, uncompressedSize);
-
-      default:
-        throw new Error(`Unsupported compression type: ${compression}`);
-    }
+    // Use worker pool for all decompression (including 'none' for consistency)
+    return this.decompressionPool.decompress(data, compression, uncompressedSize);
   }
 
-  private async decompressLZ4(data: Uint8Array, uncompressedSize: number): Promise<Uint8Array> {
-    // Placeholder - would use actual LZ4 WASM implementation
-    console.log(`Decompressing LZ4: ${data.length} -> ${uncompressedSize} bytes`);
-    
-    // For now, assume data is already decompressed (development fallback)
-    if (data.length === uncompressedSize) {
-      return data;
-    }
-    
-    // In real implementation, use LZ4 WASM module
-    throw new Error('LZ4 decompression not yet implemented');
+  getStats() {
+    return this.decompressionPool.getStats();
   }
 
-  private async decompressZstd(data: Uint8Array, uncompressedSize: number): Promise<Uint8Array> {
-    // Placeholder - would use actual Zstd WASM implementation  
-    console.log(`Decompressing Zstd: ${data.length} -> ${uncompressedSize} bytes`);
-    
-    // For now, assume data is already decompressed (development fallback)
-    if (data.length === uncompressedSize) {
-      return data;
-    }
-    
-    // In real implementation, use Zstd WASM module
-    throw new Error('Zstd decompression not yet implemented');
+  shouldBackOff(): boolean {
+    return this.decompressionPool.shouldBackOff();
+  }
+
+  getQueuePressure(): number {
+    return this.decompressionPool.getQueuePressure();
+  }
+
+  dispose() {
+    // Note: Don't dispose the global pool here as other instances might be using it
+    // Pool disposal should be handled at application shutdown
   }
 }
 

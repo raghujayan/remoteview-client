@@ -1,5 +1,7 @@
 // RemoteView Client Types - matching server protocol exactly
 
+/// <reference path="./webgpu-minimal.d.ts" />
+
 export enum DataType {
   U8 = 0,
   U16 = 1,
@@ -134,6 +136,12 @@ export interface LutDefinition {
   displayName: string;
   colors: number[][]; // RGB triplets 0-255
   description?: string;
+}
+
+export interface LookupTable {
+  name: string;
+  data: Float32Array; // RGB values 0-1, length should be 256 * 3
+  range: [number, number]; // min/max values for mapping
 }
 
 // HUD statistics

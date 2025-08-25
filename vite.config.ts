@@ -10,7 +10,7 @@ export default defineConfig({
     // WebRTC signaling via SSH tunnel
     proxy: {
       '/ws': {
-        target: 'ws://localhost:8443',
+        target: 'ws://localhost:8447',
         ws: true
       },
       '/metrics': {
